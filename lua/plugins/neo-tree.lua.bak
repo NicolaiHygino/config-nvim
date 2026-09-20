@@ -1,0 +1,182 @@
+return {
+  -- 1. desliga o explorer do snacks e remove os keymaps que ele registrava
+  {
+    "folke/snacks.nvim",
+    opts = {
+      explorer = { enabled = false },
+    },
+    keys = {
+      { "<leader>e", false },
+      { "<leader>E", false },
+      { "<leader>fe", false },
+      { "<leader>fE", false },
+    },
+  },
+
+  -- 2. neo-tree no lugar
+  {
+    "nvim-neo-tree/neo-tree.nvim",
+    branch = "v3.x",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "nvim-tree/nvim-web-devicons",
+      "MunifTanjim/nui.nvim",
+    },
+    cmd = "Neotree",
+    keys = {
+      { "<leader>e", "<cmd>Neotree toggle<cr>", desc = "Explorer (root dir)" },
+      { "<leader>E", "<cmd>Neotree toggle dir=%:p:h<cr>", desc = "Explorer (cwd)" },
+      { "<leader>fe", "<cmd>Neotree toggle<cr>", desc = "Explorer (root dir)" },
+      { "<leader>fE", "<cmd>Neotree toggle dir=%:p:h<cr>", desc = "Explorer (cwd)" },
+      {
+        "<leader>ge",
+        "<cmd>Neotree toggle git_status<cr>",
+        desc = "Explorer (git status)",
+      },
+      {
+        "<leader>be",
+        "<cmd>Neotree toggle buffers<cr>",
+        desc = "Explorer (buffers)",
+      },
+    },
+    deactivate = function()
+      vim.cmd([[Neotree close]])
+    end,
+    init = function()
+      -- se o nvim for aberto direto numa pasta (ex: `nvim .`),
+      -- deixa o neo-tree assumir no lugar do netrw
+      if vim.fn.argc(-1) == 1 then
+        local stat = vim.uv.fs_stat(vim.fn.argv(0))
+        if stat and stat.type == "directory" then
+          require("neo-tree")
+        end
+      end
+    end,
+    opts = {
+      close_if_last_window = true,
+      popup_border_style = "rounded",
+      enable_git_status = true,
+      enable_diagnostics = true,
+      sort_case_insensitive = true,
+
+      default_component_configs = {
+        indent = {
+          with_expanders = true, -- setinhas de expandir
+          expander_collapsed = "",
+          expander_expanded = "",
+          expander_highlight = "NeoTreeExpander",
+        },
+        git_status = {
+          symbols = {
+            added = "✚",
+            modified = "",
+            deleted = "✖",
+            renamed = "󰁕",
+            untracked = "",
+            ignored = "",
+            unstaged = "󰄱",
+            staged = "",
+            conflict = "",
+          },
+        },
+      },
+
+      window = {
+        width = 34,
+        mappings = {
+          ["<space>"] = "none", -- deixa o <leader> livre dentro da árvore
+          ["l"] = "open_with_auto_expand",
+          ["h"] = "close_node",
+          ["<cr>"] = "open_with_auto_expand",
+          ["o"] = "open_with_auto_expand",
+        },
+      },
+
+      -- comando customizado: ao abrir uma pasta que só tem 1 filho (e esse
+      -- filho também é pasta), continua abrindo em cascata sozinho, sem
+      -- precisar clicar em cada nível
+      commands = {
+        -- expande em cascata pastas que só tem 1 filho, usando apenas o
+        -- comando público "toggle_node" (documentado) + um pequeno polling
+        -- pra esperar o filho carregar antes de decidir se continua descendo
+        open_with_auto_expand = function(state)
+          local node = state.tree:get_node()
+
+          if node.type ~= "directory" then
+            state.commands["open"](state)
+            return
+          end
+
+          local MAX_TRIES = 20 -- ~20 * 10ms = até 200ms de espera por nível
+
+          local function wait_for_children_then_continue(node_id, tries)
+            local current = state.tree:get_node(node_id)
+            if not current then
+              return
+            end
+
+            local child_ids = current:get_child_ids()
+
+            -- ainda não carregou os filhos: tenta de novo em breve
+            if (not child_ids or #child_ids == 0) and tries < MAX_TRIES then
+              vim.defer_fn(function()
+                wait_for_children_then_continue(node_id, tries + 1)
+              end, 10)
+              return
+            end
+
+            -- carregou e tem exatamente 1 filho, e é pasta: continua descendo
+            if child_ids and #child_ids == 1 then
+              local only_child = state.tree:get_node(child_ids[1])
+              if only_child and only_child.type == "directory" then
+                state.commands["toggle_node"](state, only_child)
+                vim.defer_fn(function()
+                  wait_for_children_then_continue(only_child:get_id(), 0)
+                end, 10)
+              end
+            end
+          end
+
+          state.commands["toggle_node"](state, node)
+          vim.defer_fn(function()
+            wait_for_children_then_continue(node:get_id(), 0)
+          end, 10)
+        end,
+      },
+
+      filesystem = {
+        group_empty_dirs = true, -- agrupa pastas com filho único (com/nicolai/ecommerce → uma linha)
+        async_directory_scan = false, -- scan síncrono: necessário pra função open_with_auto_expand funcionar
+        follow_current_file = {
+          enabled = true, -- sempre revela o arquivo aberto na árvore
+          leave_dirs_open = false,
+        },
+        hijack_netrw_behavior = "open_default",
+        use_libuv_file_watcher = true, -- atualiza a árvore sozinha quando arquivos mudam fora do nvim
+
+        filtered_items = {
+          visible = false, -- true = mostra tudo (dotfiles/ignorados) já expandido; false = some do jeito clássico até apertar `H`
+          hide_dotfiles = false,
+          hide_gitignored = false,
+          hide_by_name = {
+            ".DS_Store",
+            "thumbs.db",
+          },
+          never_show = {
+            ".git",
+          },
+        },
+      },
+
+      buffers = {
+        follow_current_file = { enabled = true },
+      },
+
+      git_status = {
+        window = {
+          position = "float",
+        },
+      },
+    },
+  },
+}
