@@ -160,6 +160,7 @@ return {
           ignored = true,
         },
         explorer = {
+          layout = { layout = { width = 30, min_width = 30 } },
           -- PONTO DE INTERVENÇÃO 1: esconde da listagem os nós absorvidos.
           -- `transform` roda por item; retornar `false` remove o item da
           -- lista renderizada, retornar nada (nil) mantém o comportamento
