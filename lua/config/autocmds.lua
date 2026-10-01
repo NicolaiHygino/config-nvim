@@ -15,3 +15,21 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.expandtab = true
   end,
 })
+
+-- keep `scrolloff` padding past the end of the file, like VS Code's "scroll beyond last line"
+vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+  group = vim.api.nvim_create_augroup("scroll_past_eof", { clear = true }),
+  callback = function()
+    if vim.bo.buftype ~= "" then
+      return
+    end
+    local height = vim.api.nvim_win_get_height(0)
+    local so = math.min(vim.wo.scrolloff, math.floor((height - 1) / 2))
+    local rows_below = height - vim.fn.winline()
+    if vim.fn.line("$") - vim.fn.line(".") < so and rows_below < so then
+      local view = vim.fn.winsaveview()
+      view.topline = math.min(view.topline + so - rows_below, view.lnum)
+      vim.fn.winrestview(view)
+    end
+  end,
+})
