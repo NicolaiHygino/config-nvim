@@ -7,19 +7,18 @@
 -- Or remove existing autocmds by their group name (which is prefixed with `lazyvim_` for the defaults)
 -- e.g. vim.api.nvim_del_augroup_by_name("lazyvim_wrap_spell")
 -- the terminal of the last `<leader>r` run, closed before the next one starts
-local java_run_term
+local run_term
 -- the arguments last given to `<leader>ra`, per file
-local java_run_args = {}
+local run_args_by_file = {}
 
--- run a file with the JDK's source launcher (`java Main.java`), which also
--- compiles the other sources of its package tree. `run_args` is passed through
+-- run `cmd` (the program and its file, already shell-escaped) in a terminal
+-- docked at the bottom, from the file's folder. `run_args` is passed through
 -- the shell, so it can quote arguments that contain spaces.
-local function java_run(file, run_args)
+local function run_file(file, cmd, run_args)
   vim.cmd("update")
-  if java_run_term and java_run_term:buf_valid() then
-    java_run_term:close()
+  if run_term and run_term:buf_valid() then
+    run_term:close()
   end
-  local cmd = "java " .. vim.fn.shellescape(file)
   if run_args and run_args ~= "" then
     cmd = cmd .. " " .. run_args
   end
@@ -38,7 +37,26 @@ local function java_run(file, run_args)
       end
     end)
   end, { buf = true })
-  java_run_term = term
+  run_term = term
+end
+
+-- add `<leader>rr` and `<leader>ra` to `buf`, running its file with the
+-- command `get_cmd(file)` returns
+local function map_run_file(buf, lang, get_cmd)
+  local file = vim.api.nvim_buf_get_name(buf)
+  require("which-key").add({ { "<leader>r", group = "run", buffer = buf } })
+  vim.keymap.set("n", "<leader>rr", function()
+    run_file(file, get_cmd(file))
+  end, { buffer = buf, desc = "Run " .. lang .. " File" })
+  vim.keymap.set("n", "<leader>ra", function()
+    vim.ui.input({ prompt = "Arguments: ", default = run_args_by_file[file] }, function(input)
+      if input == nil then
+        return
+      end
+      run_args_by_file[file] = input
+      run_file(file, get_cmd(file), input)
+    end)
+  end, { buffer = buf, desc = "Run " .. lang .. " File with Arguments" })
 end
 
 vim.api.nvim_create_autocmd("FileType", {
@@ -49,20 +67,29 @@ vim.api.nvim_create_autocmd("FileType", {
     vim.opt_local.softtabstop = 4
     vim.opt_local.expandtab = true
 
-    local file = vim.api.nvim_buf_get_name(args.buf)
-    require("which-key").add({ { "<leader>r", group = "run", buffer = args.buf } })
-    vim.keymap.set("n", "<leader>rr", function()
-      java_run(file)
-    end, { buffer = args.buf, desc = "Run Java File" })
-    vim.keymap.set("n", "<leader>ra", function()
-      vim.ui.input({ prompt = "Arguments: ", default = java_run_args[file] }, function(input)
-        if input == nil then
-          return
+    -- the JDK's source launcher (`java Main.java`) also compiles the other
+    -- sources of the file's package tree
+    map_run_file(args.buf, "Java", function(file)
+      return "java " .. vim.fn.shellescape(file)
+    end)
+  end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "python",
+  callback = function(args)
+    -- prefer the project's `.venv` when no virtualenv is active in Neovim
+    -- (e.g. one picked with venv-selector, which puts it first on PATH)
+    map_run_file(args.buf, "Python", function(file)
+      local python = "python3"
+      if not vim.env.VIRTUAL_ENV then
+        local venv = vim.fs.find(".venv", { path = vim.fs.dirname(file), upward = true, type = "directory" })[1]
+        if venv and vim.fn.executable(venv .. "/bin/python") == 1 then
+          python = vim.fn.shellescape(venv .. "/bin/python")
         end
-        java_run_args[file] = input
-        java_run(file, input)
-      end)
-    end, { buffer = args.buf, desc = "Run Java File with Arguments" })
+      end
+      return python .. " " .. vim.fn.shellescape(file)
+    end)
   end,
 })
 
