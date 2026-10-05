@@ -1,7 +1,8 @@
 return {
   "saghen/blink.cmp",
   opts = {
-    signature = { enabled = true },
+    -- don't pop up signature help while typing; open it manually with <C-k>
+    signature = { enabled = true, trigger = { enabled = false } },
     completion = {
       list = {
         selection = {
